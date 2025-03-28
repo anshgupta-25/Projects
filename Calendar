@@ -1,0 +1,84 @@
+#include <stdio.h>
+
+// Function prototypes
+int getYearInput();
+int isLeapYear(int year);
+int calculateStartDay(int year);  // Prototype for calculateStartDay
+void printCalendar(int year, int isLeap);
+
+int main() {
+    int year = getYearInput();
+    int leap = isLeapYear(year);
+    printf("\nYear: %d - %s Leap Year\n", year, leap ? "is a" : "is not a");
+
+    int startDay = calculateStartDay(year);  // No warning now
+    printCalendar(year, leap);
+
+    return 0;
+}
+
+// Function definitions
+int getYearInput() {
+    int year;
+    printf("Enter a year: ");
+    scanf("%d", &year);
+    if (year < 1) {
+        printf("Invalid year. Please enter a positive integer.\n");
+        return getYearInput();
+    }
+    return year;
+}
+
+int isLeapYear(int year) {
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
+        return 1; // Leap year
+    }
+    return 0; // Not a leap year
+}
+
+int calculateStartDay(int year) {
+    int day = 1, month = 1;
+    if (month < 3) {
+        month += 12;
+        year -= 1;
+    }
+    int K = year % 100;
+    int J = year / 100;
+    int startDay = (day + (13 * (month + 1)) / 5 + K + (K / 4) + (J / 4) - (2 * J)) % 7;
+    return (startDay + 6) % 7; // Adjust to make Sunday = 0
+}
+
+void printCalendar(int year, int isLeap) {
+    int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (isLeap) {
+        daysInMonth[1] = 29; // February has 29 days in a leap year
+    }
+
+    char *months[] = {
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    };
+
+    int dayOfWeek = calculateStartDay(year);
+
+    for (int i = 0; i < 12; i++) {
+        printf("\n  ------------%s------------\n", months[i]);
+        printf("  Sun  Mon  Tue  Wed  Thu  Fri  Sat\n");
+
+        // Print leading spaces for the first row
+        for (int j = 0; j < dayOfWeek; j++) {
+            printf("     ");
+        }
+
+        for (int day = 1; day <= daysInMonth[i]; day++) {
+            printf("%5d", day);
+            if (++dayOfWeek > 6) {
+                dayOfWeek = 0; // Reset to Sunday
+                printf("\n");
+            }
+        }
+        if (dayOfWeek != 0) {
+            printf("\n");
+        }
+    }
+}
