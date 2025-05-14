@@ -1,0 +1,487 @@
+# app.py
+import os
+import pandas as pd
+from flask import Flask, render_template, request
+import logging
+
+app = Flask(__name__)
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Constants
+DATASET_PATH = 'zomato.csv'
+
+# Column name constants (standardized to lowercase with underscores)
+CUISINE_COLUMN = 'cuisines'
+LOCATION_COLUMN = 'locality'  # Change to 'city' if required by your CSV
+RATING_COLUMN = 'aggregate_rating'
+NAME_COLUMN = 'name'
+ADDRESS_COLUMN = 'address'
+VOTES_COLUMN = 'votes'
+
+zomato_data = None
+DATA_LOAD_ERROR = None
+
+# Load and prepare the dataset
+try:
+    logging.info(f"Loading dataset from {DATASET_PATH}...")
+    try:
+        zomato_data = pd.read_csv(DATASET_PATH, encoding='utf-8')
+    except UnicodeDecodeError:
+        try:
+            zomato_data = pd.read_csv(DATASET_PATH, encoding='latin1')
+        except UnicodeDecodeError:
+            zomato_data = pd.read_csv(DATASET_PATH, encoding='ISO-8859-1')
+
+    original_columns = zomato_data.columns.tolist()
+    zomato_data.columns = [col.strip().lower().replace(' ', '_') for col in original_columns]
+    logging.info(f"Columns after standardization: {zomato_data.columns.tolist()}")
+
+    required_columns = [NAME_COLUMN, CUISINE_COLUMN, LOCATION_COLUMN, RATING_COLUMN, ADDRESS_COLUMN, VOTES_COLUMN]
+    if not all(col in zomato_data.columns for col in required_columns):
+        missing = [col for col in required_columns if col not in zomato_data.columns]
+        DATA_LOAD_ERROR = f"Missing columns: {missing}"
+        zomato_data = pd.DataFrame()
+    else:
+        zomato_data[RATING_COLUMN] = pd.to_numeric(zomato_data[RATING_COLUMN], errors='coerce').fillna(0)
+        zomato_data[VOTES_COLUMN] = pd.to_numeric(zomato_data[VOTES_COLUMN], errors='coerce').fillna(0)
+        for col in [NAME_COLUMN, CUISINE_COLUMN, LOCATION_COLUMN, ADDRESS_COLUMN]:
+            zomato_data[col] = zomato_data[col].astype(str).fillna(f'{col.title()} N/A')
+
+except FileNotFoundError:
+    DATA_LOAD_ERROR = f"Dataset not found: {DATASET_PATH}"
+    zomato_data = pd.DataFrame()
+except Exception as e:
+    DATA_LOAD_ERROR = f"Error loading dataset: {e}"
+    logging.error(DATA_LOAD_ERROR, exc_info=True)
+    zomato_data = pd.DataFrame()
+
+
+@app.route('/')
+def index():
+    error = DATA_LOAD_ERROR if zomato_data is None or zomato_data.empty else None
+    return render_template('index.html',
+                           results=None,
+                           error=error,
+                           previous_cuisine_query='',
+                           previous_location_query='',
+                           NAME_COLUMN=NAME_COLUMN,
+                           ADDRESS_COLUMN=ADDRESS_COLUMN,
+                           CUISINE_COLUMN=CUISINE_COLUMN,
+                           LOCATION_COLUMN=LOCATION_COLUMN,
+                           RATING_COLUMN=RATING_COLUMN,
+                           VOTES_COLUMN=VOTES_COLUMN)
+
+
+@app.route('/find-restaurants', methods=['GET'])
+def find_restaurants():
+    cuisine_query = request.args.get('cuisine_query', '').strip().lower()
+    location_query = request.args.get('location_query', '').strip().lower()
+
+    if zomato_data is None or zomato_data.empty:
+        return render_template('index.html',
+                               results=[],
+                               error=DATA_LOAD_ERROR or "No data available.",
+                               previous_cuisine_query=cuisine_query,
+                               previous_location_query=location_query,
+                               NAME_COLUMN=NAME_COLUMN,
+                               ADDRESS_COLUMN=ADDRESS_COLUMN,
+                               CUISINE_COLUMN=CUISINE_COLUMN,
+                               LOCATION_COLUMN=LOCATION_COLUMN,
+                               RATING_COLUMN=RATING_COLUMN,
+                               VOTES_COLUMN=VOTES_COLUMN)
+
+    if not cuisine_query and not location_query:
+        return render_template('index.html',
+                               results=[],
+                               error="Please enter a cuisine and/or location.",
+                               previous_cuisine_query=cuisine_query,
+                               previous_location_query=location_query,
+                               NAME_COLUMN=NAME_COLUMN,
+                               ADDRESS_COLUMN=ADDRESS_COLUMN,
+                               CUISINE_COLUMN=CUISINE_COLUMN,
+                               LOCATION_COLUMN=LOCATION_COLUMN,
+                               RATING_COLUMN=RATING_COLUMN,
+                               VOTES_COLUMN=VOTES_COLUMN)
+
+    filtered = zomato_data.copy()
+    if cuisine_query:
+        filtered = filtered[filtered[CUISINE_COLUMN].str.lower().str.contains(cuisine_query, na=False)]
+    if location_query:
+        filtered = filtered[filtered[LOCATION_COLUMN].str.lower().str.contains(location_query, na=False)]
+
+    if filtered.empty:
+        return render_template('index.html',
+                               results=[],
+                               error="No matching restaurants found.",
+                               previous_cuisine_query=cuisine_query,
+                               previous_location_query=location_query,
+                               NAME_COLUMN=NAME_COLUMN,
+                               ADDRESS_COLUMN=ADDRESS_COLUMN,
+                               CUISINE_COLUMN=CUISINE_COLUMN,
+                               LOCATION_COLUMN=LOCATION_COLUMN,
+                               RATING_COLUMN=RATING_COLUMN,
+                               VOTES_COLUMN=VOTES_COLUMN)
+
+    filtered = filtered.sort_values(by=[RATING_COLUMN, VOTES_COLUMN, NAME_COLUMN],
+                                    ascending=[False, False, True])
+
+    columns = [NAME_COLUMN, ADDRESS_COLUMN, CUISINE_COLUMN, LOCATION_COLUMN, RATING_COLUMN, VOTES_COLUMN]
+    results = filtered[columns].to_dict('records')
+
+    return render_template('index.html',
+                           results=results,
+                           error=None,
+                           previous_cuisine_query=cuisine_query,
+                           previous_location_query=location_query,
+                           NAME_COLUMN=NAME_COLUMN,
+                           ADDRESS_COLUMN=ADDRESS_COLUMN,
+                           CUISINE_COLUMN=CUISINE_COLUMN,
+                           LOCATION_COLUMN=LOCATION_COLUMN,
+                           RATING_COLUMN=RATING_COLUMN,
+                           VOTES_COLUMN=VOTES_COLUMN)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taste Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <header class="billboard">
+        <img src="{{ url_for('static', filename='dishlogo.jpg') }}" alt="Taste Finder Logo">
+        <div class="billboard-content">
+            <h1>Taste Finder</h1>
+            <p>Your Guide to the Best Local Eats</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <h1>Find Delicious Food Near You</h1>
+        <form action="{{ url_for('find_restaurants') }}" method="get">
+            <div class="form-group">
+                <label for="cuisine">What are you craving?</label>
+                <input type="text" id="cuisine" name="cuisine_query" placeholder="e.g., sushi, pasta, pizza" value="{{ previous_cuisine_query or '' }}">
+            </div>
+
+            <div class="form-group">
+                <label for="location">Where are you?</label>
+                <input type="text" id="location" name="location_query" placeholder="e.g., city, neighborhood, address" value="{{ previous_location_query or '' }}">
+            </div>
+
+            <button type="submit">Search</button>
+        </form>
+
+        <div id="results-area">
+            {% if error %}
+                <p class="error-message">{{ error }}</p>
+            {% elif results is not none %}
+                {% if results %}
+                    <h2>Search Results</h2>
+                    {% for restaurant in results %}
+                        <div class="restaurant-result">
+                            <h3>{{ restaurant.get(NAME_COLUMN, 'Name N/A') }}</h3>
+                            <p>{{ restaurant.get(ADDRESS_COLUMN, 'Address N/A') }}</p>
+                            <p>
+                                {% if restaurant.get(RATING_COLUMN) is not none %}
+                                    <span class="rating">Rating: {{ restaurant.get(RATING_COLUMN, 'Rating N/A') }}</span>
+                                {% else %}
+                                    <span class="rating">Rating: N/A</span>
+                                {% endif %}
+                                {% if VOTES_COLUMN in restaurant and restaurant.get(VOTES_COLUMN) is not none %}
+                                    ({{ restaurant.get(VOTES_COLUMN) }} votes)
+                                {% endif %}
+                            </p>
+                            {% if CUISINE_COLUMN in restaurant and restaurant.get(CUISINE_COLUMN) != 'Cuisine N/A' %}
+                                <p>Cuisines: {{ restaurant.get(CUISINE_COLUMN) }}</p>
+                            {% endif %}
+                            {% if LOCATION_COLUMN in restaurant and restaurant.get(LOCATION_COLUMN) != 'Location N/A' %}
+                                <p>Location: {{ restaurant.get(LOCATION_COLUMN) }}</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No restaurants found for your search criteria in the dataset.</p>
+                {% endif %}
+            {% elif results is none and not error %}
+                <p>Enter cuisine and/or location above to find restaurants.</p>
+            {% endif %}
+        </div>
+    </div>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* style.css - No functional changes needed, just ensure file paths are correct */
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0; /* Remove padding from body as billboard takes full width */
+    background-color: #f4f4f4;
+    color: #333;
+    /* Set background image */
+    /* Make sure your image file is in the static/images/ folder */
+    background-image: url('static/images/background.jpg'); /* <--- UPDATE this path to your image file if needed */
+    background-size: cover; /* Cover the entire background */
+    background-position: center center; /* Center the image */
+    background-attachment: fixed; /* Fix the background so it doesn't scroll with content */
+    min-height: 100vh; /* Ensure body takes at least full viewport height */
+    display: flex;
+    flex-direction: column; /* Arrange content in a column */
+    align-items: center; /* Center content horizontally */
+}
+
+.billboard {
+    width: 100%; /* Take full width */
+    background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent dark overlay for text readability */
+    color: white;
+    padding: 50px 20px; /* Vertical and horizontal padding */
+    text-align: center;
+    margin-bottom: 20px; /* Space between billboard and the main container below it */
+    box-sizing: border-box; /* Include padding in the element's total width/height */
+}
+
+.billboard-content h1 {
+    color: white; /* Ensure title text is white */
+    margin: 0;
+    font-size: 48px; /* Larger font size for impact */
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5); /* Add text shadow for better readability */
+}
+
+.billboard-content p {
+    margin-top: 10px;
+    font-size: 20px;
+    opacity: 0.9; /* Slightly transparent for a softer look */
+}
+
+
+.container {
+    background: #fff; /* White background for the main content area */
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); /* Soft shadow */
+    width: 100%;
+    max-width: 600px; /* Limit the maximum width of the content area */
+    text-align: center;
+    margin-top: 20px; /* Space above the container */
+    margin-bottom: 20px; /* Space below the container */
+    box-sizing: border-box; /* Include padding in the element's total width/height */
+}
+
+/* Styling for form elements */
+h1 {
+    color: #5a5a5a; /* Dark gray for the main heading */
+    margin-bottom: 20px;
+    font-size: 24px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+    text-align: left; /* Align labels and inputs to the left */
+}
+
+.form-group label {
+    display: block; /* Make labels take their own line */
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555; /* Slightly lighter gray for labels */
+}
+
+.form-group input[type="text"] {
+    width: calc(100% - 22px); /* Calculate width considering padding and border */
+    padding: 10px;
+    border: 1px solid #ccc; /* Light gray border */
+    border-radius: 4px; /* Rounded corners */
+    font-size: 16px;
+}
+
+button[type="submit"] {
+    display: inline-block;
+    background-color: #5cb85c; /* Green background */
+    color: white; /* White text */
+    padding: 10px 20px;
+    border: none; /* No border */
+    border-radius: 4px;
+    cursor: pointer; /* Indicate clickable */
+    font-size: 18px;
+    transition: background-color 0.3s ease; /* Smooth hover effect */
+}
+
+button[type="submit"]:hover {
+    background-color: #4cae4c; /* Darker green on hover */
+}
+
+/* Styling for search results area */
+#results-area {
+    margin-top: 30px;
+    text-align: left; /* Align results text to the left */
+    border-top: 1px solid #eee; /* Light gray line above results */
+    padding-top: 20px;
+}
+
+.restaurant-result {
+    background: #f9f9f9; /* Very light gray background for each result item */
+    border: 1px solid #ddd; /* Light gray border */
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px; /* Space between result items */
+    box-shadow: 0 1px 5px rgba(0, 0, 0, 0.05); /* Subtle shadow */
+}
+
+.restaurant-result h3 {
+    margin-top: 0;
+    color: #337ab7; /* Blue color for restaurant names */
+    font-size: 20px;
+}
+
+.restaurant-result p {
+    margin: 5px 0;
+    font-size: 15px;
+    color: #666; /* Darker gray for general info */
+}
+
+.restaurant-result .rating {
+    font-weight: bold;
+    color: #f0ad4e; /* Orange color for ratings */
+}
+
+/* Styling for error messages */
+.error-message {
+    color: #d9534f; /* Red color for errors */
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+/* style.css */
+body {
+    background-image: url('backgroundfood.jpg'); /* FIXED: correct relative path */
+    background-size: cover;
+    background-position: center center;
+    background-attachment: fixed;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    font-family: 'Arial', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+body {
+    font-family: 'Arial', sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    background-image: url('backgroundfood.jpg'); /* CORRECT PATH */
+    background-size: cover;
+    background-position: center center;
+    background-attachment: fixed;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #333;
+}
+
+.billboard {
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
+    padding: 50px 20px;
+    text-align: center;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+}
+
+.billboard img {
+    width: 100px;
+    margin-bottom: 10px;
+}
+
+.billboard-content h1 {
+    margin: 0;
+    font-size: 48px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    color: white;
+}
+
+.billboard-content p {
+    margin-top: 10px;
+    font-size: 20px;
+    opacity: 0.9;
+}
+
+.container {
+    background: #fff;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 600px;
+    text-align: center;
+    margin-top: 20px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+}
